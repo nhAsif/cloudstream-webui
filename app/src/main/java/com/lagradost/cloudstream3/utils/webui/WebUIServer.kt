@@ -46,11 +46,29 @@ object WebUIServer {
                             val link = data?.links?.getOrNull(linkIndex)
                             
                             if (link != null) {
-                                val m3u = """
-                                    #EXTM3U
-                                    #EXTINF:-1,${data.title ?: "Stream"}
-                                    ${link.url}
-                                """.trimIndent()
+                                val allHeaders = link.getAllHeaders()
+                                val userAgent = allHeaders["User-Agent"] ?: allHeaders["user-agent"]
+                                val referer = allHeaders["Referer"] ?: allHeaders["referer"]
+
+                                val m3u = StringBuilder().apply {
+                                    appendLine("#EXTM3U")
+                                    appendLine("#EXTINF:-1,${data.title ?: "Stream"}")
+                                    // VLC headers
+                                    if (!userAgent.isNullOrBlank()) appendLine("#EXTVLCOPT:http-user-agent=$userAgent")
+                                    if (!referer.isNullOrBlank()) appendLine("#EXTVLCOPT:http-referrer=$referer")
+                                    // PotPlayer headers (often uses standard URL or specific format)
+                                    // Some versions of PotPlayer support |Header=Value in the URL
+                                    val urlWithHeaders = if (!userAgent.isNullOrBlank() || !referer.isNullOrBlank()) {
+                                        var suffix = ""
+                                        if (!userAgent.isNullOrBlank()) suffix += "|User-Agent=$userAgent"
+                                        if (!referer.isNullOrBlank()) suffix += "|Referer=$referer"
+                                        "${link.url}$suffix"
+                                    } else {
+                                        link.url
+                                    }
+                                    appendLine(urlWithHeaders)
+                                }.toString()
+
                                 call.respondText(m3u, io.ktor.http.ContentType.parse("audio/x-mpegurl"))
                             } else {
                                 call.respondText("Link not found", status = io.ktor.http.HttpStatusCode.NotFound)
@@ -83,6 +101,12 @@ object WebUIServer {
                     .btn { display: block; background: #e50914; color: white; padding: 10px; margin: 10px 0; text-decoration: none; border-radius: 5px; cursor: pointer; border: none; font-size: 16px; }
                     .btn-secondary { background: #333; }
                     .links { text-align: left; margin-top: 20px; }
+                    #toast { visibility: hidden; min-width: 200px; background-color: #333; color: #fff; text-align: center; border-radius: 2px; padding: 16px; position: fixed; z-index: 1; left: 50%; bottom: 30px; transform: translateX(-50%); }
+                    #toast.show { visibility: visible; -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+                    @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+                    @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+                    @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+                    @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
                 </style>
             </head>
             <body>
@@ -92,8 +116,24 @@ object WebUIServer {
                     <div id="info"></div>
                     <div id="links" class="links"></div>
                 </div>
+                <div id="toast">Copied to clipboard!</div>
 
                 <script>
+                    function showToast(text) {
+                        const x = document.getElementById("toast");
+                        x.innerText = text;
+                        x.className = "show";
+                        setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
+                    }
+
+                    function copyToClipboard(text) {
+                        navigator.clipboard.writeText(text).then(() => {
+                            showToast("Copied!");
+                        }).catch(err => {
+                            console.error('Error copying text: ', err);
+                        });
+                    }
+
                     async function update() {
                         try {
                             const res = await fetch('/api/current_stream');
@@ -113,9 +153,13 @@ object WebUIServer {
                             
                             let linksHtml = '<h3>Play on Desktop:</h3>';
                             data.links.forEach((link, index) => {
-                                linksHtml += `<a class="btn" href="/play.m3u?index=${'$'}{index}">Play ${'$'}{link.name} (${'$'}{link.quality}p)</a>`;
-                                linksHtml += `<button class="btn btn-secondary" onclick="window.location.href='vlc://${'$'}{link.url}'">Open in VLC</button>`;
-                                linksHtml += `<button class="btn btn-secondary" onclick="window.location.href='potplayer://${'$'}{link.url}'">Open in PotPlayer</button>`;
+                                const m3uUrl = window.location.origin + '/play.m3u?index=' + index;
+                                linksHtml += `<div style="margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px;">`;
+                                linksHtml += `<strong>${'$'}{link.name} (${'$'}{link.quality}p)</strong>`;
+                                linksHtml += `<a class="btn" href="${'$'}{m3uUrl}">Download M3U</a>`;
+                                linksHtml += `<button class="btn btn-secondary" onclick="copyToClipboard('${'$'}{m3uUrl}')">Copy M3U URL</button>`;
+                                linksHtml += `<button class="btn btn-secondary" onclick="copyToClipboard('${'$'}{link.url}')">Copy Stream URL</button>`;
+                                linksHtml += `</div>`;
                             });
                             document.getElementById('links').innerHTML = linksHtml;
                         } catch (e) {
