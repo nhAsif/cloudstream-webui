@@ -84,7 +84,8 @@ android {
     signingConfigs {
         // We just use SIGNING_KEY_ALIAS here since it won't change
         // so won't kill the configuration cache.
-        if (System.getenv("SIGNING_KEY_ALIAS") != null) {
+        val signingKeyAlias = System.getenv("SIGNING_KEY_ALIAS")
+        if (!signingKeyAlias.isNullOrEmpty()) {
             create("prerelease") {
                 val tmpFilePath = System.getProperty("user.home") + "/work/_temp/keystore/"
                 val prereleaseStoreFile: File? = File(tmpFilePath).listFiles()?.first()
@@ -103,8 +104,8 @@ android {
         applicationId = "com.lagradost.cloudstream3"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 71
-        versionName = "4.7.3"
+        versionCode = 72
+        versionName = "4.7.4"
 
         manifestPlaceholders["target_sdk_version"] = libs.versions.targetSdk.get()
 
