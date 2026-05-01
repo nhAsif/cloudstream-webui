@@ -15,7 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 object WebUIServer {
-    private var server: CIOApplicationEngine? = null
+    private var server: EmbeddedServer<*, *>? = null
     private val scope = CoroutineScope(Dispatchers.IO + Job())
 
     fun start(port: Int = 8945) {
@@ -112,9 +112,9 @@ object WebUIServer {
                             
                             let linksHtml = '<h3>Play on Desktop:</h3>';
                             data.links.forEach((link, index) => {
-                                linksHtml += `<a class="btn" href="/play.m3u?index=${index}">Play ${link.name} (${link.quality}p)</a>`;
-                                linksHtml += `<button class="btn btn-secondary" onclick="window.location.href='vlc://${link.url}'">Open in VLC</button>`;
-                                linksHtml += `<button class="btn btn-secondary" onclick="window.location.href='potplayer://${link.url}'">Open in PotPlayer</button>`;
+                                linksHtml += `<a class="btn" href="/play.m3u?index=${'$'}{index}">Play ${'$'}{link.name} (${'$'}{link.quality}p)</a>`;
+                                linksHtml += `<button class="btn btn-secondary" onclick="window.location.href='vlc://${'$'}{link.url}'">Open in VLC</button>`;
+                                linksHtml += `<button class="btn btn-secondary" onclick="window.location.href='potplayer://${'$'}{link.url}'">Open in PotPlayer</button>`;
                             });
                             document.getElementById('links').innerHTML = linksHtml;
                         } catch (e) {
