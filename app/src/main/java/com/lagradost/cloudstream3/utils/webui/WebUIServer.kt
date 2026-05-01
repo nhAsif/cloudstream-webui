@@ -9,9 +9,12 @@ import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.http.content.*
+import io.ktor.server.request.*
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.APIHolder.apis
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
+import com.lagradost.cloudstream3.ui.player.SubtitleData
+import com.lagradost.cloudstream3.ui.player.SubtitleOrigin
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
@@ -68,7 +71,7 @@ object WebUIServer {
                                     val loadResponse = api.load(url)
                                     if (loadResponse != null) {
                                         val links = mutableListOf<ExtractorLink>()
-                                        val subs = mutableListOf<SubtitleFile>()
+                                        val subs = mutableListOf<SubtitleData>()
                                         
                                         // Extract links for Movie/Episode
                                         val dataUrls = when (loadResponse) {
@@ -80,12 +83,24 @@ object WebUIServer {
                                         }
                                         
                                         dataUrls.forEach { dataUrl ->
-                                            api.loadLinks(dataUrl, false, { subs.add(it) }, { links.add(it) })
+                                            api.loadLinks(dataUrl, false, { subFile -> 
+                                                subs.add(SubtitleData(
+                                                    subFile.name,
+                                                    "",
+                                                    subFile.url,
+                                                    SubtitleOrigin.URL,
+                                                    "text/vtt", // Placeholder
+                                                    emptyMap(),
+                                                    subFile.lang
+                                                ))
+                                            }, { links.add(it) })
                                         }
                                         
-                                        val streamData = CurrentStreamData(
+                                        val streamData = CurrentStreamManager.StreamData(
                                             title = loadResponse.name,
                                             poster = loadResponse.posterUrl,
+                                            episode = null,
+                                            season = null,
                                             links = links,
                                             subs = subs
                                         )
@@ -101,8 +116,8 @@ object WebUIServer {
                             }
                         }
                         post("/api/play") {
-                            val data = call.receive<CurrentStreamData>()
-                            CurrentStreamManager.updateData(data.title, data.poster, null, null, data.links, data.subs)
+                            val data = call.receive<CurrentStreamManager.StreamData>()
+                            CurrentStreamManager.updateStream(data.title, data.poster, data.episode, data.season, data.links, data.subs)
                             call.respond(mapOf("success" to true))
                         }
                         get("/play.m3u") {
