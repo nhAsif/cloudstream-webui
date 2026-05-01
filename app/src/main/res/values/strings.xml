@@ -98,6 +98,12 @@
     <string name="filter_bookmarks">Filter Bookmarks</string>
     <string name="error_bookmarks_text">Bookmarks</string>
     <string name="action_remove_from_bookmarks">Remove</string>
+
+    <string name="webui_server_title">Local WebUI Server</string>
+    <string name="webui_server_key">webui_server_key</string>
+    <string name="webui_server_enable">Enable Local WebUI Server</string>
+    <string name="webui_server_summary">Access current stream on other devices</string>
+    <string name="webui_server_address">Address: %s</string>
     <string name="action_add_to_bookmarks">Set watch status</string>
     <string name="sort_apply">Apply</string>
     <string name="sort_copy">Copy</string>

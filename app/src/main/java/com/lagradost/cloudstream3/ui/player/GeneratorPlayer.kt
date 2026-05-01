@@ -114,6 +114,7 @@ import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToEnglishLanguageN
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToLanguageName
 import com.lagradost.cloudstream3.utils.SubtitleHelper.languages
 import com.lagradost.cloudstream3.utils.UIHelper.clipboardHelper
+import com.lagradost.cloudstream3.utils.webui.CurrentStreamManager
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
@@ -519,6 +520,29 @@ class GeneratorPlayer : FullScreenPlayer() {
             hasRequestedStamps = false
 
         loadExtractorJob(link.first)
+        
+        // Update WebUI
+        val meta = currentMeta
+        val title = getHeaderName()
+        val poster = when (meta) {
+            is ResultEpisode -> meta.poster
+            else -> null
+        }
+        val episode = when (meta) {
+            is ResultEpisode -> meta.episode
+            is ExtractorUri -> meta.episode
+            else -> null
+        }
+        val season = when (meta) {
+            is ResultEpisode -> meta.season
+            is ExtractorUri -> meta.season
+            else -> null
+        }
+        val links = currentLinks.mapNotNull { it.first }
+        val subs = currentSubs.toList()
+        
+        CurrentStreamManager.updateStream(title, poster, episode, season, links, subs)
+
         // load player
         context?.let { ctx ->
             val (url, uri) = link

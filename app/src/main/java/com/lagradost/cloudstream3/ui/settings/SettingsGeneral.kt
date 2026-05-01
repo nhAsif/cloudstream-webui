@@ -48,6 +48,8 @@ import com.lagradost.cloudstream3.utils.USER_PROVIDER_API
 import com.lagradost.cloudstream3.utils.downloader.DownloadFileManagement
 import com.lagradost.cloudstream3.utils.downloader.DownloadFileManagement.getBasePath
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
+import com.lagradost.cloudstream3.utils.webui.NetUtils
+import com.lagradost.cloudstream3.utils.webui.WebUIServer
 import java.util.Locale
 
 // Change local language settings in the app.
@@ -177,6 +179,31 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
         hideKeyboard()
         setPreferencesFromResource(R.xml.settings_general, rootKey)
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(requireContext())
+
+        getPref(R.string.webui_server_key)?.let { pref ->
+            val updateSummary = {
+                val isEnabled = settingsManager.getBoolean(getString(R.string.webui_server_key), false)
+                if (isEnabled) {
+                    val ip = NetUtils.getLocalIpAddress()
+                    if (ip != null) {
+                        pref.summary = getString(R.string.webui_server_address, "http://$ip:8945")
+                        WebUIServer.start()
+                    } else {
+                        pref.summary = "Unable to get local IP"
+                    }
+                } else {
+                    pref.summary = getString(R.string.webui_server_summary)
+                    WebUIServer.stop()
+                }
+            }
+
+            updateSummary()
+            pref.setOnPreferenceChangeListener { _, _ ->
+                // Delay update because preference is not yet saved
+                view?.post { updateSummary() }
+                true
+            }
+        }
 
         fun getCurrent(): MutableList<CustomSite> {
             return getKey<Array<CustomSite>>(USER_PROVIDER_API)?.toMutableList()

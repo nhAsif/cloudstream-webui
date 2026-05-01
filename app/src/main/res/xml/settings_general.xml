@@ -57,6 +57,13 @@
 
     <PreferenceCategory android:title="@string/pref_category_bypass">
 
+        <SwitchPreference
+            android:defaultValue="false"
+            android:icon="@drawable/ic_baseline_language_24"
+            android:key="@string/webui_server_key"
+            android:summary="@string/webui_server_summary"
+            android:title="@string/webui_server_title" />
+
         <Preference
             android:icon="@drawable/ic_baseline_add_24"
             android:key="@string/override_site_key"
