@@ -85,7 +85,7 @@ object WebUIServer {
                                         dataUrls.forEach { dataUrl ->
                                             api.loadLinks(dataUrl, false, { subFile -> 
                                                 subs.add(SubtitleData(
-                                                    subFile.name,
+                                                    subFile.lang,
                                                     "",
                                                     subFile.url,
                                                     SubtitleOrigin.URL,
