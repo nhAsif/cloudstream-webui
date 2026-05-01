@@ -9,13 +9,14 @@ import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.http.content.*
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 object WebUIServer {
-    private var server: EmbeddedServer<*, *>? = null
+    private var server: ApplicationEngine? = null
     private val scope = CoroutineScope(Dispatchers.IO + Job())
 
     fun start(port: Int = 8945) {
@@ -64,7 +65,7 @@ object WebUIServer {
     }
 
     fun stop() {
-        server?.stop(1000, 2000)
+        server?.stop(1000, 2000, TimeUnit.MILLISECONDS)
         server = null
     }
 
