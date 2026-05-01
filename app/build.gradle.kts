@@ -104,8 +104,8 @@ android {
         applicationId = "com.lagradost.cloudstream3"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 72
-        versionName = "4.7.4"
+        versionCode = 73
+        versionName = "4.7.5"
 
         manifestPlaceholders["target_sdk_version"] = libs.versions.targetSdk.get()
 
@@ -161,7 +161,8 @@ android {
             if (signingConfigs.names.contains("prerelease")) {
                 signingConfig = signingConfigs.getByName("prerelease")
             } else {
-                logger.warn("No prerelease signing config!")
+                signingConfig = signingConfigs.getByName("debug")
+                logger.warn("No prerelease signing config, falling back to debug signing!")
             }
             versionNameSuffix = "-PRE"
             versionCode = (System.currentTimeMillis() / 60000).toInt()
