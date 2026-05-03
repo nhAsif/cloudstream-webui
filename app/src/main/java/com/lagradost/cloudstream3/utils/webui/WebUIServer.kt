@@ -53,7 +53,15 @@ object WebUIServer {
                             
                             val results = apis.amap { api ->
                                 try {
-                                    api.search(query) ?: emptyList()
+                                    api.search(query)?.map {
+                                        mapOf(
+                                            "name" to it.name,
+                                            "url" to it.url,
+                                            "apiName" to it.apiName,
+                                            "posterUrl" to it.posterUrl,
+                                            "type" to it.type?.name
+                                        )
+                                    } ?: emptyList()
                                 } catch (e: Exception) {
                                     emptyList()
                                 }
@@ -149,6 +157,13 @@ object WebUIServer {
                                     appendLine(urlWithHeaders)
                                 }.toString()
 
+                                call.response.header(
+                                    io.ktor.http.HttpHeaders.ContentDisposition,
+                                    io.ktor.http.ContentDisposition.Attachment.withParameter(
+                                        io.ktor.http.ContentDisposition.Parameters.FileName,
+                                        "${data.title ?: "stream"}.m3u"
+                                    ).toString()
+                                )
                                 call.respondText(m3u, io.ktor.http.ContentType.parse("audio/x-mpegurl"))
                             } else {
                                 call.respondText("Link not found", status = io.ktor.http.HttpStatusCode.NotFound)
@@ -239,7 +254,7 @@ object WebUIServer {
                             let html = '';
                             results.forEach(item => {
                                 html += `
-                                    <div class="search-item" onclick="loadAndPlay('${'$'}{item.url}', '${'$'}{item.apiName}')">
+                                    <div class="search-item" onclick="loadAndPlay(this.dataset.url, this.dataset.api)" data-url="${'$'}{item.url}" data-api="${'$'}{item.apiName}">
                                         <img src="${'$'}{item.posterUrl || ''}" onerror="this.src='https://via.placeholder.com/120x180?text=No+Poster'">
                                         <div class="search-item-title">${'$'}{item.name}</div>
                                         <div style="padding: 0 5px 5px; opacity: 0.7;">${'$'}{item.apiName}</div>
@@ -289,11 +304,33 @@ object WebUIServer {
                         setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
                     }
 
+                    function fallbackCopyTextToClipboard(text) {
+                        const textArea = document.createElement("textarea");
+                        textArea.value = text;
+                        textArea.style.top = "0";
+                        textArea.style.left = "0";
+                        textArea.style.position = "fixed";
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                            const successful = document.execCommand('copy');
+                            showToast(successful ? "Copied!" : "Failed to copy");
+                        } catch (err) {
+                            showToast("Error copying");
+                        }
+                        document.body.removeChild(textArea);
+                    }
+
                     function copyToClipboard(text) {
+                        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                            fallbackCopyTextToClipboard(text);
+                            return;
+                        }
                         navigator.clipboard.writeText(text).then(() => {
                             showToast("Copied!");
                         }).catch(err => {
-                            console.error('Error copying text: ', err);
+                            fallbackCopyTextToClipboard(text);
                         });
                     }
 
@@ -337,4 +374,6 @@ object WebUIServer {
             </html>
         """.trimIndent()
     }
+}
+
 }
