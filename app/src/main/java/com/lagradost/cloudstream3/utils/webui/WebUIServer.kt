@@ -81,27 +81,31 @@ object WebUIServer {
                                         val links = mutableListOf<ExtractorLink>()
                                         val subs = mutableListOf<SubtitleData>()
                                         
-                                        // Extract links for Movie/Episode
+                                        // Extract links for Movie/Episode. Only get the first episode to avoid long loading times.
                                         val dataUrls = when (loadResponse) {
                                             is MovieLoadResponse -> listOf(loadResponse.dataUrl)
-                                            is TvSeriesLoadResponse -> loadResponse.episodes.map { it.data }
-                                            is AnimeLoadResponse -> loadResponse.episodes.values.flatten().map { it.data }
+                                            is TvSeriesLoadResponse -> listOfNotNull(loadResponse.episodes.firstOrNull()?.data)
+                                            is AnimeLoadResponse -> listOfNotNull(loadResponse.episodes.values.flatten().firstOrNull()?.data)
                                             is LiveStreamLoadResponse -> listOf(loadResponse.dataUrl)
                                             else -> emptyList()
                                         }
                                         
                                         dataUrls.forEach { dataUrl ->
-                                            api.loadLinks(dataUrl, false, { subFile -> 
-                                                subs.add(SubtitleData(
-                                                    subFile.lang,
-                                                    "",
-                                                    subFile.url,
-                                                    SubtitleOrigin.URL,
-                                                    "text/vtt", // Placeholder
-                                                    emptyMap(),
-                                                    subFile.lang
-                                                ))
-                                            }, { links.add(it) })
+                                            try {
+                                                api.loadLinks(dataUrl, false, { subFile -> 
+                                                    subs.add(SubtitleData(
+                                                        subFile.lang,
+                                                        "",
+                                                        subFile.url,
+                                                        SubtitleOrigin.URL,
+                                                        "text/vtt", // Placeholder
+                                                        emptyMap(),
+                                                        subFile.lang
+                                                    ))
+                                                }, { links.add(it) })
+                                            } catch (e: Throwable) {
+                                                // Ignore individual link load failures
+                                            }
                                         }
                                         
                                         val streamData = CurrentStreamManager.StreamData(
@@ -116,7 +120,7 @@ object WebUIServer {
                                     } else {
                                         call.respond(mapOf("error" to "Failed to load metadata"))
                                     }
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     call.respond(mapOf("error" to e.message))
                                 }
                             } else {
