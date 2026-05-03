@@ -429,7 +429,8 @@ object WebUIServer {
                                 const m3uUrl = window.location.origin + '/play.m3u?index=' + index;
                                 linksHtml += `<div style="margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px;">`;
                                 linksHtml += `<strong>${'$'}{link.name} (${'$'}{link.quality}p)</strong>`;
-                                linksHtml += `<a class="btn" href="${'$'}{m3uUrl}">Download M3U</a>`;
+                                linksHtml += `<a class="btn" href="vlc://${'$'}{m3uUrl}">Open in VLC</a>`;
+                                linksHtml += `<a class="btn btn-secondary" href="${'$'}{m3uUrl}">Download M3U</a>`;
                                 linksHtml += `<button class="btn btn-secondary" onclick="copyToClipboard('${'$'}{m3uUrl}')">Copy M3U URL</button>`;
                                 linksHtml += `<button class="btn btn-secondary" onclick="copyToClipboard('${'$'}{link.url}')">Copy Stream URL</button>`;
                                 linksHtml += `</div>`;
