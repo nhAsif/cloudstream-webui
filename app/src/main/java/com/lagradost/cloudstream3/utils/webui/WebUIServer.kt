@@ -15,6 +15,8 @@ import com.lagradost.cloudstream3.APIHolder.apis
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.ui.player.SubtitleData
 import com.lagradost.cloudstream3.ui.player.SubtitleOrigin
+import com.lagradost.cloudstream3.ui.APIRepository
+import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
@@ -47,22 +49,34 @@ object WebUIServer {
                         get("/api/search") {
                             val query = call.parameters["q"] ?: ""
                             if (query.length < 2) {
-                                call.respond(emptyList<SearchResponse>())
+                                call.respond(emptyList<Map<String, Any?>>())
                                 return@get
                             }
                             
                             val results = apis.amap { api ->
                                 try {
-                                    api.search(query, 1)?.items?.map {
-                                        mapOf(
-                                            "name" to it.name,
-                                            "url" to it.url,
-                                            "apiName" to it.apiName,
-                                            "posterUrl" to it.posterUrl,
-                                            "type" to it.type?.name
-                                        )
-                                    } ?: emptyList()
+                                    // Use APIRepository for consistent behavior with the app
+                                    val repo = APIRepository(api)
+                                    // We use a shorter timeout for search to keep WebUI responsive
+                                    val search = withTimeoutOrNull(15000) {
+                                        repo.search(query, 1)
+                                    }
+                                    
+                                    if (search is Resource.Success) {
+                                        search.value.items.map {
+                                            mapOf(
+                                                "name" to it.name,
+                                                "url" to it.url,
+                                                "apiName" to it.apiName,
+                                                "posterUrl" to it.posterUrl,
+                                                "type" to it.type?.name
+                                            )
+                                        }
+                                    } else {
+                                        emptyList()
+                                    }
                                 } catch (e: Throwable) {
+                                    logError(e)
                                     emptyList()
                                 }
                             }.flatten()
@@ -76,8 +90,13 @@ object WebUIServer {
                             
                             if (api != null && url.isNotBlank()) {
                                 try {
-                                    val loadResponse = api.load(url)
-                                    if (loadResponse != null) {
+                                    val repo = APIRepository(api)
+                                    val loadResource = withTimeoutOrNull(30000) {
+                                        repo.load(url)
+                                    }
+                                    
+                                    if (loadResource is Resource.Success) {
+                                        val loadResponse = loadResource.value
                                         val episodes = mutableListOf<Map<String, Any?>>()
                                         
                                         when (loadResponse) {
@@ -115,10 +134,13 @@ object WebUIServer {
                                             "episodes" to episodes
                                         ))
                                     } else {
-                                        call.respond(mapOf("error" to "Failed to load metadata"))
+                                        val errorMsg = if (loadResource is Resource.Failure) loadResource.errorString else "Failed to load metadata (Timeout or Null)"
+                                        com.lagradost.cloudstream3.mvvm.debugPrint { "WebUI Metadata load failed for $apiName ($url): $errorMsg" }
+                                        call.respond(mapOf("error" to errorMsg))
                                     }
                                 } catch (e: Throwable) {
-                                    call.respond(mapOf("error" to e.message))
+                                    logError(e)
+                                    call.respond(mapOf("error" to (e.message ?: "Unknown error")))
                                 }
                             } else {
                                 call.respond(mapOf("error" to "Invalid API or URL"))
