@@ -13,7 +13,8 @@ object CurrentStreamManager {
         val episode: Int?,
         val season: Int?,
         val links: List<ExtractorLink>,
-        val subs: List<SubtitleData>
+        val subs: List<SubtitleData>,
+        val episodeName: String? = null
     )
 
     private val _currentStream = MutableStateFlow<StreamData?>(null)
@@ -25,8 +26,9 @@ object CurrentStreamManager {
         episode: Int?,
         season: Int?,
         links: List<ExtractorLink>,
-        subs: List<SubtitleData>
+        subs: List<SubtitleData>,
+        episodeName: String? = null
     ) {
-        _currentStream.value = StreamData(title, poster, episode, season, links, subs)
+        _currentStream.value = StreamData(title, poster, episode, season, links, subs, episodeName)
     }
 }

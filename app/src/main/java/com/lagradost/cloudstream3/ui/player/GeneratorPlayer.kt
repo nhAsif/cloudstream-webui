@@ -538,10 +538,14 @@ class GeneratorPlayer : FullScreenPlayer() {
             is ExtractorUri -> meta.season
             else -> null
         }
+        val episodeName = when (meta) {
+            is ResultEpisode -> meta.name
+            else -> null
+        }
         val links = currentLinks.mapNotNull { it.first }
         val subs = currentSubs.toList()
         
-        CurrentStreamManager.updateStream(title, poster, episode, season, links, subs)
+        CurrentStreamManager.updateStream(title, poster, episode, season, links, subs, episodeName)
 
         // load player
         context?.let { ctx ->
