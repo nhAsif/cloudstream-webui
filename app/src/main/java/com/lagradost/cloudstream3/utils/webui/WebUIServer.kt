@@ -375,5 +375,3 @@ object WebUIServer {
         """.trimIndent()
     }
 }
-
-}
