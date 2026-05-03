@@ -223,63 +223,139 @@ object WebUIServer {
     private fun getHtml(): String {
         return """
             <!DOCTYPE html>
-            <html>
+            <html lang="en" class="dark">
             <head>
                 <title>Cloudstream WebUI</title>
                 <meta name="viewport" content="width=device-width, initial-scale=1">
+                <script src="https://cdn.tailwindcss.com"></script>
+                <script>
+                    tailwind.config = {
+                        darkMode: 'class',
+                        theme: {
+                            extend: {
+                                colors: {
+                                    primary: '#e50914',
+                                    background: '#121212',
+                                    surface: '#1e1e1e',
+                                }
+                            }
+                        }
+                    }
+                </script>
                 <style>
-                    body { font-family: sans-serif; background: #121212; color: white; padding: 20px; text-align: center; }
-                    .card { background: #1e1e1e; padding: 20px; border-radius: 10px; display: inline-block; max-width: 400px; width: 100%; }
-                    img { max-width: 100%; border-radius: 5px; }
-                    .btn { display: block; background: #e50914; color: white; padding: 10px; margin: 10px 0; text-decoration: none; border-radius: 5px; cursor: pointer; border: none; font-size: 16px; }
-                    .btn-secondary { background: #333; }
-                    .links { text-align: left; margin-top: 20px; }
-                    .search-container { margin-bottom: 20px; display: flex; gap: 10px; }
-                    input { flex-grow: 1; padding: 10px; border-radius: 5px; border: 1px solid #333; background: #1e1e1e; color: white; }
-                    .search-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; text-align: left; }
-                    .search-item { background: #1e1e1e; border-radius: 5px; overflow: hidden; cursor: pointer; font-size: 12px; }
-                    .search-item img { width: 100%; height: 180px; object-fit: cover; }
-                    .search-item-title { padding: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                    #toast { visibility: hidden; min-width: 200px; background-color: #333; color: #fff; text-align: center; border-radius: 2px; padding: 16px; position: fixed; z-index: 1; left: 50%; bottom: 30px; transform: translateX(-50%); }
-                    #toast.show { visibility: visible; -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
-                    @-webkit-keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
-                    @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
-                    @-webkit-keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
-                    @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+                    body { background-color: #121212; color: #ffffff; }
+                    .no-scrollbar::-webkit-scrollbar { display: none; }
+                    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+                    #toast { visibility: hidden; opacity: 0; transition: visibility 0s 0.5s, opacity 0.5s linear; }
+                    #toast.show { visibility: visible; opacity: 1; transition: opacity 0.5s linear; }
                 </style>
             </head>
-            <body>
-                <div class="card">
-                    <div id="player-view">
-                        <div class="search-container">
-                            <input type="text" id="search-input" placeholder="Search movies/series..." onkeyup="if(event.key === 'Enter') search()">
-                            <button class="btn" style="margin:0; width: auto;" onclick="search()">Search</button>
+            <body class="bg-background text-white font-sans antialiased min-h-screen flex flex-col">
+                <nav class="bg-surface shadow-md py-4 px-6 flex justify-between items-center sticky top-0 z-10">
+                    <div class="text-xl font-bold text-primary flex items-center gap-2 cursor-pointer" onclick="toggleView(false); update()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347c-.75.412-1.667-.13-1.667-.986V5.653Z" /></svg>
+                        Cloudstream WebUI
+                    </div>
+                    <div class="flex gap-2 w-full max-w-md ml-4">
+                        <input type="text" id="search-input" placeholder="Search movies, series, anime..." class="w-full bg-background border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-primary transition-colors" onkeyup="if(event.key === 'Enter') search()">
+                        <button onclick="search()" class="bg-primary hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Search</button>
+                    </div>
+                </nav>
+
+                <main class="flex-grow container mx-auto px-4 py-8 max-w-7xl">
+                    <div id="player-view" class="flex flex-col md:flex-row gap-8 items-start justify-center">
+                        <div class="w-full md:w-1/3 max-w-sm mx-auto">
+                            <div class="bg-surface rounded-xl overflow-hidden shadow-lg border border-gray-800 relative aspect-[2/3] flex items-center justify-center">
+                                <img id="poster" src="" alt="Poster" class="w-full h-full object-cover hidden">
+                                <div id="poster-placeholder" class="text-gray-500 flex flex-col items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mb-2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125Z" /></svg>
+                                    <span>No Active Stream</span>
+                                </div>
+                            </div>
                         </div>
-                        <h1 id="title">Loading...</h1>
-                        <img id="poster" src="" style="display:none;">
-                        <div id="info"></div>
-                        <div id="links" class="links"></div>
+                        
+                        <div class="w-full md:w-2/3 bg-surface p-6 rounded-xl shadow-lg border border-gray-800">
+                            <h1 id="title" class="text-3xl font-bold mb-2 text-gray-100">Loading...</h1>
+                            <p id="info" class="text-lg text-primary font-semibold mb-6"></p>
+                            
+                            <div id="links-container" class="hidden">
+                                <h3 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Play on Desktop</h3>
+                                <div id="links" class="flex flex-col gap-4"></div>
+                            </div>
+                            <div id="no-links-msg" class="text-gray-400 italic">Push a stream from the app or search to start playing.</div>
+                        </div>
                     </div>
-                    <div id="search-view" style="display:none;">
-                        <button class="btn btn-secondary" onclick="toggleView(false)">← Back to Player</button>
-                        <h2 id="search-query-title">Search Results</h2>
-                        <div id="search-results" class="search-results"></div>
-                        <div id="episode-view" style="display:none; text-align:left;"></div>
+
+                    <div id="search-view" class="hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 id="search-query-title" class="text-2xl font-bold">Search Results</h2>
+                            <button onclick="toggleView(false)" class="text-gray-400 hover:text-white flex items-center gap-1 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" /></svg>
+                                Back to Player
+                            </button>
+                        </div>
+                        
+                        <div id="search-results-loading" class="hidden flex justify-center py-12">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                        </div>
+                        
+                        <div id="search-results" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"></div>
                     </div>
+
+                    <div id="episode-view" class="hidden max-w-4xl mx-auto">
+                        <button onclick="document.getElementById('episode-view').classList.add('hidden'); document.getElementById('search-view').classList.remove('hidden');" class="mb-4 text-gray-400 hover:text-white flex items-center gap-1 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" /></svg>
+                            Back to Results
+                        </button>
+                        
+                        <div class="bg-surface p-6 rounded-xl shadow-lg border border-gray-800">
+                            <h2 id="metadata-title" class="text-3xl font-bold mb-6">Loading...</h2>
+                            
+                            <div id="season-selector-container" class="mb-6 hidden">
+                                <label for="season-select" class="block text-sm font-medium text-gray-400 mb-2">Select Season</label>
+                                <select id="season-select" onchange="renderEpisodesForSeason(this.value)" class="bg-background border border-gray-700 text-white text-sm rounded-lg focus:ring-primary focus:border-primary block w-full p-2.5 outline-none"></select>
+                            </div>
+
+                            <div id="episodes-list" class="flex flex-col gap-2 max-h-[60vh] overflow-y-auto pr-2 no-scrollbar"></div>
+                        </div>
+                    </div>
+                </main>
+
+                <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-2 z-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-green-400"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                    <span id="toast-msg">Success!</span>
                 </div>
-                <div id="toast">Copied to clipboard!</div>
 
                 <script>
                     let isSearching = false;
+                    let currentMetadata = null;
+                    let currentApiName = null;
+
+                    function escapeHtml(unsafe) {
+                        if (unsafe == null) return '';
+                        return unsafe.toString()
+                             .replace(/&/g, "&amp;")
+                             .replace(/</g, "&lt;")
+                             .replace(/>/g, "&gt;")
+                             .replace(/"/g, "&quot;")
+                             .replace(/'/g, "&#039;");
+                    }
 
                     function toggleView(searching) {
                         isSearching = searching;
-                        document.getElementById('player-view').style.display = searching ? 'none' : 'block';
-                        document.getElementById('search-view').style.display = searching ? 'block' : 'none';
+                        const playerView = document.getElementById('player-view');
+                        const searchView = document.getElementById('search-view');
+                        const episodeView = document.getElementById('episode-view');
+                        
                         if (searching) {
-                            document.getElementById('search-results').style.display = 'grid';
-                            document.getElementById('search-query-title').style.display = 'block';
-                            document.getElementById('episode-view').style.display = 'none';
+                            playerView.classList.add('hidden');
+                            searchView.classList.remove('hidden');
+                            episodeView.classList.add('hidden');
+                        } else {
+                            playerView.classList.remove('hidden');
+                            searchView.classList.add('hidden');
+                            episodeView.classList.add('hidden');
+                            update();
                         }
                     }
 
@@ -289,62 +365,164 @@ object WebUIServer {
                         
                         toggleView(true);
                         document.getElementById('search-query-title').innerText = 'Searching for "' + query + '"...';
-                        document.getElementById('search-results').innerHTML = 'Loading results...';
+                        
+                        const resultsContainer = document.getElementById('search-results');
+                        const loadingIndicator = document.getElementById('search-results-loading');
+                        
+                        resultsContainer.innerHTML = '';
+                        loadingIndicator.classList.remove('hidden');
                         
                         try {
                             const res = await fetch('/api/search?q=' + encodeURIComponent(query));
                             const results = await res.json();
                             
-                            let html = '';
-                            results.forEach(item => {
-                                html += `
-                                    <div class="search-item" onclick="loadEpisodes(this.dataset.url, this.dataset.api)" data-url="${'$'}{item.url}" data-api="${'$'}{item.apiName}">
-                                        <img src="${'$'}{item.posterUrl || ''}" onerror="this.src='https://via.placeholder.com/120x180?text=No+Poster'">
-                                        <div class="search-item-title">${'$'}{item.name}</div>
-                                        <div style="padding: 0 5px 5px; opacity: 0.7;">${'$'}{item.apiName}</div>
-                                    </div>
-                                `;
-                            });
-                            document.getElementById('search-results').innerHTML = html || 'No results found.';
+                            loadingIndicator.classList.add('hidden');
+                            
+                            if (results.length === 0) {
+                                resultsContainer.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">No results found.</div>';
+                            } else {
+                                let html = '';
+                                results.forEach(item => {
+                                    const escapedUrl = escapeHtml(item.url);
+                                    const escapedApiName = escapeHtml(item.apiName);
+                                    const escapedName = escapeHtml(item.name);
+                                    const posterUrl = item.posterUrl ? escapeHtml(item.posterUrl) : 'https://via.placeholder.com/300x450/1e1e1e/888888?text=No+Poster';
+                                    
+                                    html += `
+                                        <div class="bg-surface border border-gray-800 rounded-lg overflow-hidden cursor-pointer hover:scale-105 hover:border-primary transition-all duration-200 shadow-md flex flex-col group" onclick="loadEpisodes('${'$'}{escapedUrl}', '${'$'}{escapedApiName}')">
+                                            <div class="relative aspect-[2/3] w-full bg-gray-800">
+                                                <img src="${'$'}{posterUrl}" onerror="this.src='https://via.placeholder.com/300x450/1e1e1e/888888?text=No+Poster'" class="w-full h-full object-cover">
+                                                <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+                                                </div>
+                                            </div>
+                                            <div class="p-3 flex-grow flex flex-col justify-between">
+                                                <h3 class="font-semibold text-sm line-clamp-2" title="${'$'}{escapedName}">${'$'}{escapedName}</h3>
+                                                <span class="text-xs text-gray-400 mt-2 truncate">${'$'}{escapedApiName}</span>
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+                                resultsContainer.innerHTML = html;
+                            }
                             document.getElementById('search-query-title').innerText = 'Results for "' + query + '"';
                         } catch (e) {
                             console.error(e);
-                            document.getElementById('search-results').innerHTML = 'Error searching.';
+                            loadingIndicator.classList.add('hidden');
+                            resultsContainer.innerHTML = '<div class="col-span-full text-center text-red-400 py-8">Error performing search. Please check backend logs.</div>';
                         }
                     }
 
                     async function loadEpisodes(url, apiName) {
                         showToast("Loading metadata...");
+                        
+                        document.getElementById('search-view').classList.add('hidden');
+                        const episodeView = document.getElementById('episode-view');
+                        episodeView.classList.remove('hidden');
+                        
+                        document.getElementById('metadata-title').innerText = 'Loading metadata...';
+                        document.getElementById('season-selector-container').classList.add('hidden');
+                        document.getElementById('episodes-list').innerHTML = '<div class="flex justify-center py-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>';
+
                         try {
                             const res = await fetch(`/api/load?url=${'$'}{encodeURIComponent(url)}&apiName=${'$'}{encodeURIComponent(apiName)}`);
                             const metadata = await res.json();
                             
                             if (metadata.error) {
                                 showToast("Error: " + metadata.error);
+                                episodeView.classList.add('hidden');
+                                document.getElementById('search-view').classList.remove('hidden');
                                 return;
                             }
                             
-                            let html = `<button class="btn btn-secondary" onclick="document.getElementById('episode-view').style.display='none'; document.getElementById('search-results').style.display='grid'; document.getElementById('search-query-title').style.display='block';">← Back to Results</button>`;
-                            html += `<h2 style="margin-top:20px;">${'$'}{metadata.title}</h2>`;
-                            html += `<div style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto;">`;
-                            metadata.episodes.forEach(ep => {
-                                html += `<button class="btn" style="text-align:left; background:#333;" onclick="playEpisode(this.dataset.url, this.dataset.api, this.dataset.title, this.dataset.poster, this.dataset.season, this.dataset.episode)" data-url="${'$'}{ep.data}" data-api="${'$'}{apiName}" data-title="${'$'}{metadata.title.replace(/"/g, '&quot;')}" data-poster="${'$'}{metadata.poster || ''}" data-season="${'$'}{ep.season || ''}" data-episode="${'$'}{ep.episode || ''}">${'$'}{ep.name}</button>`;
-                            });
-                            html += `</div>`;
+                            currentMetadata = metadata;
+                            currentApiName = apiName;
                             
-                            document.getElementById('search-results').style.display = 'none';
-                            document.getElementById('search-query-title').style.display = 'none';
-                            document.getElementById('episode-view').innerHTML = html;
-                            document.getElementById('episode-view').style.display = 'block';
+                            document.getElementById('metadata-title').innerText = metadata.title;
+                            
+                            const seasons = new Set();
+                            let hasValidSeason = false;
+                            
+                            metadata.episodes.forEach(ep => {
+                                if (ep.season != null) {
+                                    seasons.add(ep.season);
+                                    hasValidSeason = true;
+                                }
+                            });
+
+                            const seasonContainer = document.getElementById('season-selector-container');
+                            const seasonSelect = document.getElementById('season-select');
+                            
+                            if (hasValidSeason && seasons.size > 0) {
+                                seasonContainer.classList.remove('hidden');
+                                seasonSelect.innerHTML = '';
+                                
+                                const sortedSeasons = Array.from(seasons).sort((a, b) => a - b);
+                                sortedSeasons.forEach(s => {
+                                    const option = document.createElement('option');
+                                    option.value = s;
+                                    option.text = 'Season ' + s;
+                                    seasonSelect.appendChild(option);
+                                });
+                                
+                                renderEpisodesForSeason(sortedSeasons[0]);
+                            } else {
+                                seasonContainer.classList.add('hidden');
+                                renderEpisodesForSeason(null);
+                            }
                             
                         } catch (e) {
                             console.error(e);
                             showToast("Failed to load metadata.");
+                            episodeView.classList.add('hidden');
+                            document.getElementById('search-view').classList.remove('hidden');
+                        }
+                    }
+
+                    function renderEpisodesForSeason(seasonVal) {
+                        if (!currentMetadata || !currentMetadata.episodes) return;
+                        
+                        const episodesList = document.getElementById('episodes-list');
+                        episodesList.innerHTML = '';
+                        
+                        let filteredEpisodes = currentMetadata.episodes;
+                        
+                        if (seasonVal !== null) {
+                            const s = parseInt(seasonVal, 10);
+                            filteredEpisodes = currentMetadata.episodes.filter(ep => ep.season === s);
+                        }
+
+                        filteredEpisodes.forEach(ep => {
+                            const epName = escapeHtml(ep.name);
+                            const epData = ep.data; // Keep original for pushing
+                            
+                            const btn = document.createElement('button');
+                            btn.className = "flex items-center justify-between bg-gray-800 hover:bg-gray-700 p-4 rounded-lg transition-colors border border-gray-700 hover:border-gray-500 text-left w-full group";
+                            
+                            const epInfo = ep.episode != null ? `<span class="text-xs font-mono bg-gray-700 group-hover:bg-gray-600 px-2 py-1 rounded text-gray-300 mr-3">E${'$'}{ep.episode}</span>` : '';
+                            
+                            btn.innerHTML = `
+                                <div class="flex items-center flex-grow overflow-hidden">
+                                    ${'$'}{epInfo}
+                                    <span class="font-medium truncate">${'$'}{epName}</span>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6 text-primary flex-shrink-0 ml-2 group-hover:scale-110 transition-transform"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+                            `;
+                            
+                            btn.addEventListener('click', () => {
+                                playEpisode(epData, currentApiName, currentMetadata.title, currentMetadata.poster, ep.season, ep.episode);
+                            });
+                            
+                            episodesList.appendChild(btn);
+                        });
+                        
+                        if (filteredEpisodes.length === 0) {
+                            episodesList.innerHTML = '<div class="text-center text-gray-400 py-4">No episodes found for this season.</div>';
                         }
                     }
 
                     async function playEpisode(dataUrl, apiName, title, poster, season, episode) {
-                        showToast("Loading links...");
+                        showToast("Pushing stream to app... Loading links...");
                         try {
                             const res = await fetch('/api/load_links', {
                                 method: 'POST',
@@ -361,7 +539,7 @@ object WebUIServer {
                             if (playRes.success) {
                                 showToast("Stream pushed to app!");
                                 toggleView(false);
-                                update(); // Refresh player view immediately
+                                update();
                             }
                         } catch (e) {
                             console.error(e);
@@ -370,10 +548,17 @@ object WebUIServer {
                     }
 
                     function showToast(text) {
-                        const x = document.getElementById("toast");
-                        x.innerText = text;
-                        x.className = "show";
-                        setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
+                        const toast = document.getElementById("toast");
+                        const msg = document.getElementById("toast-msg");
+                        msg.innerText = text;
+                        
+                        toast.classList.remove("show");
+                        void toast.offsetWidth;
+                        
+                        toast.classList.add("show");
+                        setTimeout(() => {
+                            toast.classList.remove("show");
+                        }, 3000);
                     }
 
                     function fallbackCopyTextToClipboard(text) {
@@ -400,7 +585,7 @@ object WebUIServer {
                             return;
                         }
                         navigator.clipboard.writeText(text).then(() => {
-                            showToast("Copied!");
+                            showToast("Copied to clipboard!");
                         }).catch(err => {
                             fallbackCopyTextToClipboard(text);
                         });
@@ -411,31 +596,80 @@ object WebUIServer {
                         try {
                             const res = await fetch('/api/current_stream');
                             const data = await res.json();
+                            
+                            const titleEl = document.getElementById('title');
+                            const posterEl = document.getElementById('poster');
+                            const posterPlaceholder = document.getElementById('poster-placeholder');
+                            const infoEl = document.getElementById('info');
+                            const linksContainer = document.getElementById('links-container');
+                            const noLinksMsg = document.getElementById('no-links-msg');
+                            const linksList = document.getElementById('links');
+                            
                             if (data.error) {
-                                document.getElementById('title').innerText = 'No Stream Active';
-                                document.getElementById('poster').style.display = 'none';
-                                document.getElementById('links').innerHTML = '';
+                                titleEl.innerText = 'No Stream Active';
+                                posterEl.classList.add('hidden');
+                                posterPlaceholder.classList.remove('hidden');
+                                infoEl.innerText = '';
+                                linksContainer.classList.add('hidden');
+                                noLinksMsg.classList.remove('hidden');
                                 return;
                             }
-                            document.getElementById('title').innerText = data.title;
-                            if (data.poster) {
-                                document.getElementById('poster').src = data.poster;
-                                document.getElementById('poster').style.display = 'block';
-                            }
-                            document.getElementById('info').innerText = (data.season ? 'S' + data.season : '') + (data.episode ? ' E' + data.episode : '');
                             
-                            let linksHtml = '<h3>Play on Desktop:</h3>';
-                            data.links.forEach((link, index) => {
-                                const m3uUrl = window.location.origin + '/play.m3u?index=' + index;
-                                linksHtml += `<div style="margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px;">`;
-                                linksHtml += `<strong>${'$'}{link.name} (${'$'}{link.quality}p)</strong>`;
-                                linksHtml += `<a class="btn" href="vlc://${'$'}{m3uUrl}">Open in VLC</a>`;
-                                linksHtml += `<a class="btn btn-secondary" href="${'$'}{m3uUrl}">Download M3U</a>`;
-                                linksHtml += `<button class="btn btn-secondary" onclick="copyToClipboard('${'$'}{m3uUrl}')">Copy M3U URL</button>`;
-                                linksHtml += `<button class="btn btn-secondary" onclick="copyToClipboard('${'$'}{link.url}')">Copy Stream URL</button>`;
-                                linksHtml += `</div>`;
-                            });
-                            document.getElementById('links').innerHTML = linksHtml;
+                            titleEl.innerText = data.title || 'Unknown Title';
+                            
+                            if (data.poster) {
+                                posterEl.src = data.poster;
+                                posterEl.classList.remove('hidden');
+                                posterPlaceholder.classList.add('hidden');
+                            } else {
+                                posterEl.classList.add('hidden');
+                                posterPlaceholder.classList.remove('hidden');
+                            }
+                            
+                            let infoText = '';
+                            if (data.season) infoText += 'Season ' + data.season + ' ';
+                            if (data.episode) infoText += 'Episode ' + data.episode;
+                            infoEl.innerText = infoText;
+                            
+                            if (data.links && data.links.length > 0) {
+                                linksContainer.classList.remove('hidden');
+                                noLinksMsg.classList.add('hidden');
+                                
+                                linksList.innerHTML = '';
+                                data.links.forEach((link, index) => {
+                                    const m3uUrl = window.location.origin + '/play.m3u?index=' + index;
+                                    const linkName = escapeHtml(link.name || 'Unknown');
+                                    const quality = escapeHtml(link.quality || 'Auto');
+                                    
+                                    const item = document.createElement('div');
+                                    item.className = "bg-gray-800 p-4 rounded-lg flex flex-col xl:flex-row gap-4 items-start xl:items-center justify-between border border-gray-700";
+                                    item.innerHTML = `
+                                        <div class="flex flex-col">
+                                            <span class="font-bold text-white">${'$'}{linkName}</span>
+                                            <span class="text-sm text-primary font-mono">${'$'}{quality}</span>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2 w-full xl:w-auto">
+                                            <a href="vlc://${'$'}{m3uUrl}" class="flex-grow xl:flex-grow-0 text-center bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded font-medium transition-colors text-sm flex items-center justify-center gap-1">
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347c-.75.412-1.667-.13-1.667-.986V5.653Z" /></svg>
+                                                VLC
+                                            </a>
+                                            <button onclick="copyToClipboard('${'$'}{m3uUrl}')" class="flex-grow xl:flex-grow-0 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded font-medium transition-colors text-sm flex items-center justify-center gap-1 border border-gray-600">
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-300"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" /></svg>
+                                                M3U
+                                            </button>
+                                            <button onclick="copyToClipboard('${'$'}{escapeHtml(link.url)}')" class="flex-grow xl:flex-grow-0 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded font-medium transition-colors text-sm flex items-center justify-center gap-1 border border-gray-600">
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-300"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
+                                                URL
+                                            </button>
+                                        </div>
+                                    `;
+                                    linksList.appendChild(item);
+                                });
+                            } else {
+                                linksContainer.classList.add('hidden');
+                                noLinksMsg.classList.remove('hidden');
+                            }
+                            
                         } catch (e) {
                             console.error(e);
                         }
