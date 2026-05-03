@@ -274,7 +274,7 @@ object WebUIServer {
             </head>
             <body class="bg-background text-white font-sans antialiased min-h-screen flex flex-col">
                 <nav class="bg-surface shadow-md py-4 px-6 flex justify-between items-center sticky top-0 z-10">
-                    <div class="text-xl font-bold text-primary flex items-center gap-2 cursor-pointer" onclick="toggleView(false); update()">
+                    <div class="text-xl font-bold text-primary flex items-center gap-2 cursor-pointer" onclick="navigate('#/')">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347c-.75.412-1.667-.13-1.667-.986V5.653Z" /></svg>
                         Cloudstream WebUI
                     </div>
@@ -311,8 +311,8 @@ object WebUIServer {
                     <div id="search-view" class="hidden">
                         <div class="flex items-center justify-between mb-6">
                             <h2 id="search-query-title" class="text-2xl font-bold">Search Results</h2>
-                            <button onclick="toggleView(false)" class="text-gray-400 hover:text-white flex items-center gap-1 transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" /></svg>
+                            <button onclick="navigate('#/')" class="text-gray-400 hover:text-white flex items-center gap-1 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                                 Back to Player
                             </button>
                         </div>
@@ -325,7 +325,7 @@ object WebUIServer {
                     </div>
 
                     <div id="episode-view" class="hidden max-w-4xl mx-auto">
-                        <button onclick="document.getElementById('episode-view').classList.add('hidden'); document.getElementById('search-view').classList.remove('hidden');" class="mb-4 text-gray-400 hover:text-white flex items-center gap-1 transition-colors">
+                        <button onclick="window.history.back()" class="mb-4 text-gray-400 hover:text-white flex items-center gap-1 transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                             Back to Results
                         </button>
@@ -349,9 +349,15 @@ object WebUIServer {
                 </div>
 
                 <script>
-                    let isSearching = false;
-                    let currentMetadata = null;
-                    let currentApiName = null;
+                    const state = {
+                        view: 'player', // 'player', 'search', 'episodes'
+                        searchQuery: '',
+                        searchResults: [],
+                        currentMetadata: null,
+                        currentApiName: null,
+                        isPolling: false,
+                        pollInterval: null
+                    };
 
                     function escapeHtml(unsafe) {
                         if (unsafe == null) return '';
@@ -363,30 +369,65 @@ object WebUIServer {
                              .replace(/'/g, "&#039;");
                     }
 
-                    function toggleView(searching) {
-                        const playerView = document.getElementById('player-view');
-                        const searchView = document.getElementById('search-view');
-                        const episodeView = document.getElementById('episode-view');
+                    // --- Routing ---
+
+                    function navigate(hash) {
+                        window.location.hash = hash;
+                    }
+
+                    async function handleRoute() {
+                        const hash = window.location.hash || '#/';
                         
-                        if (searching) {
-                            isSearching = true;
-                            playerView.classList.add('hidden');
-                            searchView.classList.remove('hidden');
-                            episodeView.classList.add('hidden');
+                        if (hash.startsWith('#/search')) {
+                            const params = new URLSearchParams(hash.split('?')[1]);
+                            const q = params.get('q') || '';
+                            state.view = 'search';
+                            if (q !== state.searchQuery || state.searchResults.length === 0) {
+                                await performSearch(q);
+                            } else {
+                                renderSearchView();
+                            }
+                        } else if (hash.startsWith('#/episodes')) {
+                            const params = new URLSearchParams(hash.split('?')[1]);
+                            const url = params.get('url');
+                            const api = params.get('api');
+                            state.view = 'episodes';
+                            if (!state.currentMetadata || state.currentMetadata.url !== url) {
+                                await fetchMetadata(url, api);
+                            } else {
+                                renderEpisodeView();
+                            }
                         } else {
-                            isSearching = false;
-                            playerView.classList.remove('hidden');
-                            searchView.classList.add('hidden');
-                            episodeView.classList.add('hidden');
-                            update();
+                            state.view = 'player';
+                            renderPlayerView();
+                        }
+                        
+                        updateViewVisibility();
+                    }
+
+                    function updateViewVisibility() {
+                        document.getElementById('player-view').classList.toggle('hidden', state.view !== 'player');
+                        document.getElementById('search-view').classList.toggle('hidden', state.view !== 'search');
+                        document.getElementById('episode-view').classList.toggle('hidden', state.view !== 'episodes');
+                        
+                        // Handle polling
+                        if (state.view === 'player' && !state.isPolling) {
+                            startPolling();
+                        } else if (state.view !== 'player' && state.isPolling) {
+                            stopPolling();
                         }
                     }
 
-                    async function search() {
-                        const query = document.getElementById('search-input').value;
-                        if (!query) return;
-                        
-                        toggleView(true);
+                    // --- Actions ---
+
+                    function onSearchTrigger() {
+                        const q = document.getElementById('search-input').value;
+                        if (q) navigate(`#/search?q=${'$'}{encodeURIComponent(q)}`);
+                    }
+
+                    async function performSearch(query) {
+                        state.searchQuery = query;
+                        document.getElementById('search-input').value = query;
                         document.getElementById('search-query-title').innerText = 'Searching for "' + query + '"...';
                         
                         const resultsContainer = document.getElementById('search-results');
@@ -394,54 +435,23 @@ object WebUIServer {
                         
                         resultsContainer.innerHTML = '';
                         loadingIndicator.classList.remove('hidden');
-                        
+                        renderSearchView(); // Show view immediately with loading state
+
                         try {
                             const res = await fetch('/api/search?q=' + encodeURIComponent(query));
-                            const results = await res.json();
-                            
-                            loadingIndicator.classList.add('hidden');
-                            
-                            if (results.length === 0) {
-                                resultsContainer.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">No results found.</div>';
-                            } else {
-                                let html = '';
-                                results.forEach(item => {
-                                    const escapedUrl = escapeHtml(item.url);
-                                    const escapedApiName = escapeHtml(item.apiName);
-                                    const escapedName = escapeHtml(item.name);
-                                    const posterUrl = item.posterUrl ? escapeHtml(item.posterUrl) : 'https://via.placeholder.com/300x450/1e1e1e/888888?text=No+Poster';
-                                    
-                                    html += `
-                                        <div class="bg-surface border border-gray-800 rounded-lg overflow-hidden cursor-pointer hover:scale-105 hover:border-primary transition-all duration-200 shadow-md flex flex-col group" onclick="loadEpisodes('${'$'}{escapedUrl}', '${'$'}{escapedApiName}')">
-                                            <div class="relative aspect-[2/3] w-full bg-gray-800">
-                                                <img src="${'$'}{posterUrl}" onerror="this.src='https://via.placeholder.com/300x450/1e1e1e/888888?text=No+Poster'" class="w-full h-full object-cover">
-                                                <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
-                                                </div>
-                                            </div>
-                                            <div class="p-3 flex-grow flex flex-col justify-between">
-                                                <h3 class="font-semibold text-sm line-clamp-2" title="${'$'}{escapedName}">${'$'}{escapedName}</h3>
-                                                <span class="text-xs text-gray-400 mt-2 truncate">${'$'}{escapedApiName}</span>
-                                            </div>
-                                        </div>
-                                    `;
-                                });
-                                resultsContainer.innerHTML = html;
-                            }
-                            document.getElementById('search-query-title').innerText = 'Results for "' + query + '"';
+                            state.searchResults = await res.json();
+                            renderSearchView();
                         } catch (e) {
                             console.error(e);
+                            showToast("Search failed.");
+                        } finally {
                             loadingIndicator.classList.add('hidden');
-                            resultsContainer.innerHTML = '<div class="col-span-full text-center text-red-400 py-8">Error performing search. Please check backend logs.</div>';
                         }
                     }
 
-                    async function loadEpisodes(url, apiName) {
+                    async function fetchMetadata(url, apiName) {
                         showToast("Loading metadata...");
-                        
-                        document.getElementById('search-view').classList.add('hidden');
-                        const episodeView = document.getElementById('episode-view');
-                        episodeView.classList.remove('hidden');
+                        state.currentApiName = apiName;
                         
                         document.getElementById('metadata-title').innerText = 'Loading metadata...';
                         document.getElementById('season-selector-container').classList.add('hidden');
@@ -449,103 +459,122 @@ object WebUIServer {
 
                         try {
                             const res = await fetch(`/api/load?url=${'$'}{encodeURIComponent(url)}&apiName=${'$'}{encodeURIComponent(apiName)}`);
-                            const metadata = await res.json();
+                            state.currentMetadata = await res.json();
+                            state.currentMetadata.url = url; // Tag with URL for route matching
                             
-                            if (metadata.error) {
-                                showToast("Error: " + metadata.error);
-                                episodeView.classList.add('hidden');
-                                document.getElementById('search-view').classList.remove('hidden');
+                            if (state.currentMetadata.error) {
+                                showToast("Error: " + state.currentMetadata.error);
+                                navigate('#/search?q=' + encodeURIComponent(state.searchQuery));
                                 return;
                             }
                             
-                            currentMetadata = metadata;
-                            currentApiName = apiName;
-                            
-                            document.getElementById('metadata-title').innerText = metadata.title;
-                            
-                            const seasons = new Set();
-                            let hasValidSeason = false;
-                            
-                            metadata.episodes.forEach(ep => {
-                                if (ep.season != null) {
-                                    seasons.add(ep.season);
-                                    hasValidSeason = true;
-                                }
-                            });
-
-                            const seasonContainer = document.getElementById('season-selector-container');
-                            const seasonSelect = document.getElementById('season-select');
-                            
-                            if (hasValidSeason && seasons.size > 0) {
-                                seasonContainer.classList.remove('hidden');
-                                seasonSelect.innerHTML = '';
-                                
-                                const sortedSeasons = Array.from(seasons).sort((a, b) => a - b);
-                                sortedSeasons.forEach(s => {
-                                    const option = document.createElement('option');
-                                    option.value = s;
-                                    option.text = 'Season ' + s;
-                                    seasonSelect.appendChild(option);
-                                });
-                                
-                                renderEpisodesForSeason(sortedSeasons[0]);
-                            } else {
-                                seasonContainer.classList.add('hidden');
-                                renderEpisodesForSeason(null);
-                            }
-                            
+                            renderEpisodeView();
                         } catch (e) {
                             console.error(e);
                             showToast("Failed to load metadata.");
-                            episodeView.classList.add('hidden');
-                            document.getElementById('search-view').classList.remove('hidden');
+                            navigate('#/search?q=' + encodeURIComponent(state.searchQuery));
+                        }
+                    }
+
+                    // --- Rendering ---
+
+                    function renderSearchView() {
+                        const resultsContainer = document.getElementById('search-results');
+                        document.getElementById('search-query-title').innerText = 'Results for "' + state.searchQuery + '"';
+                        
+                        if (state.searchResults.length === 0) {
+                            resultsContainer.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">No results found.</div>';
+                            return;
+                        }
+
+                        let html = '';
+                        state.searchResults.forEach(item => {
+                            const escapedUrl = escapeHtml(item.url);
+                            const escapedApiName = escapeHtml(item.apiName);
+                            const escapedName = escapeHtml(item.name);
+                            const posterUrl = item.posterUrl ? escapeHtml(item.posterUrl) : 'https://via.placeholder.com/300x450/1e1e1e/888888?text=No+Poster';
+                            
+                            html += `
+                                <div class="bg-surface border border-gray-800 rounded-lg overflow-hidden cursor-pointer hover:scale-105 hover:border-primary transition-all duration-200 shadow-md flex flex-col group" onclick="navigate('#/episodes?url=${'$'}{encodeURIComponent(item.url)}&api=${'$'}{encodeURIComponent(item.apiName)}')">
+                                    <div class="relative aspect-[2/3] w-full bg-gray-800">
+                                        <img src="${'$'}{posterUrl}" onerror="this.src='https://via.placeholder.com/300x450/1e1e1e/888888?text=No+Poster'" class="w-full h-full object-cover">
+                                        <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-opacity"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
+                                        </div>
+                                    </div>
+                                    <div class="p-3 flex-grow flex flex-col justify-between">
+                                        <h3 class="font-semibold text-sm line-clamp-2" title="${'$'}{escapedName}">${'$'}{escapedName}</h3>
+                                        <span class="text-xs text-gray-400 mt-2 truncate">${'$'}{escapedApiName}</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        resultsContainer.innerHTML = html;
+                    }
+
+                    function renderEpisodeView() {
+                        const metadata = state.currentMetadata;
+                        document.getElementById('metadata-title').innerText = metadata.title;
+                        
+                        const seasons = new Set();
+                        let hasValidSeason = false;
+                        metadata.episodes.forEach(ep => {
+                            if (ep.season != null) {
+                                seasons.add(ep.season);
+                                hasValidSeason = true;
+                            }
+                        });
+
+                        const seasonContainer = document.getElementById('season-selector-container');
+                        const seasonSelect = document.getElementById('season-select');
+                        
+                        if (hasValidSeason && seasons.size > 0) {
+                            seasonContainer.classList.remove('hidden');
+                            seasonSelect.innerHTML = '';
+                            const sortedSeasons = Array.from(seasons).sort((a, b) => a - b);
+                            sortedSeasons.forEach(s => {
+                                const option = document.createElement('option');
+                                option.value = s;
+                                option.text = 'Season ' + s;
+                                seasonSelect.appendChild(option);
+                            });
+                            renderEpisodesForSeason(sortedSeasons[0]);
+                        } else {
+                            seasonContainer.classList.add('hidden');
+                            renderEpisodesForSeason(null);
                         }
                     }
 
                     function renderEpisodesForSeason(seasonVal) {
-                        if (!currentMetadata || !currentMetadata.episodes) return;
-                        
                         const episodesList = document.getElementById('episodes-list');
                         episodesList.innerHTML = '';
                         
-                        let filteredEpisodes = currentMetadata.episodes;
-                        
+                        let filteredEpisodes = state.currentMetadata.episodes;
                         if (seasonVal !== null) {
                             const s = parseInt(seasonVal, 10);
-                            filteredEpisodes = currentMetadata.episodes.filter(ep => ep.season === s);
+                            filteredEpisodes = state.currentMetadata.episodes.filter(ep => ep.season === s);
                         }
 
                         filteredEpisodes.forEach(ep => {
-                            const epName = escapeHtml(ep.name);
-                            const epData = ep.data; // Keep original for pushing
-                            
                             const btn = document.createElement('button');
                             btn.className = "flex items-center justify-between bg-gray-800 hover:bg-gray-700 p-4 rounded-lg transition-colors border border-gray-700 hover:border-gray-500 text-left w-full group";
-                            
                             const epInfo = ep.episode != null ? `<span class="text-xs font-mono bg-gray-700 group-hover:bg-gray-600 px-2 py-1 rounded text-gray-300 mr-3">E${'$'}{ep.episode}</span>` : '';
-                            
                             btn.innerHTML = `
                                 <div class="flex items-center flex-grow overflow-hidden">
                                     ${'$'}{epInfo}
-                                    <span class="font-medium truncate">${'$'}{epName}</span>
+                                    <span class="font-medium truncate">${'$'}{escapeHtml(ep.name)}</span>
                                 </div>
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6 text-primary flex-shrink-0 ml-2 group-hover:scale-110 transition-transform"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z" /></svg>
                             `;
-                            
                             btn.addEventListener('click', () => {
-                                playEpisode(epData, currentApiName, currentMetadata.title, currentMetadata.poster, ep.season, ep.episode);
+                                playEpisode(ep.data, state.currentApiName, state.currentMetadata.title, state.currentMetadata.poster, ep.season, ep.episode);
                             });
-                            
                             episodesList.appendChild(btn);
                         });
-                        
-                        if (filteredEpisodes.length === 0) {
-                            episodesList.innerHTML = '<div class="text-center text-gray-400 py-4">No episodes found for this season.</div>';
-                        }
                     }
 
                     async function playEpisode(dataUrl, apiName, title, poster, season, episode) {
-                        showToast("Pushing stream to app... Loading links...");
+                        showToast("Pushing stream... Loading links...");
                         try {
                             const res = await fetch('/api/load_links', {
                                 method: 'POST',
@@ -553,16 +582,11 @@ object WebUIServer {
                                 body: JSON.stringify({ data: dataUrl, apiName: apiName, title: title, poster: poster, season: season, episode: episode })
                             });
                             const playRes = await res.json();
-                            
-                            if (playRes.error) {
-                                showToast("Error: " + playRes.error);
-                                return;
-                            }
-                            
                             if (playRes.success) {
-                                showToast("Stream pushed to app!");
-                                toggleView(false);
-                                update();
+                                showToast("Stream pushed!");
+                                navigate('#/');
+                            } else {
+                                showToast("Error: " + playRes.error);
                             }
                         } catch (e) {
                             console.error(e);
@@ -570,52 +594,15 @@ object WebUIServer {
                         }
                     }
 
-                    function showToast(text) {
-                        const toast = document.getElementById("toast");
-                        const msg = document.getElementById("toast-msg");
-                        msg.innerText = text;
-                        
-                        toast.classList.remove("show");
-                        void toast.offsetWidth;
-                        
-                        toast.classList.add("show");
-                        setTimeout(() => {
-                            toast.classList.remove("show");
-                        }, 3000);
+                    function renderPlayerView() {
+                        // This view is mostly static and updated by updatePoll()
+                        updatePoll();
                     }
 
-                    function fallbackCopyTextToClipboard(text) {
-                        const textArea = document.createElement("textarea");
-                        textArea.value = text;
-                        textArea.style.top = "0";
-                        textArea.style.left = "0";
-                        textArea.style.position = "fixed";
-                        document.body.appendChild(textArea);
-                        textArea.focus();
-                        textArea.select();
-                        try {
-                            const successful = document.execCommand('copy');
-                            showToast(successful ? "Copied!" : "Failed to copy");
-                        } catch (err) {
-                            showToast("Error copying");
-                        }
-                        document.body.removeChild(textArea);
-                    }
+                    // --- Polling & UI Updates ---
 
-                    function copyToClipboard(text) {
-                        if (!navigator.clipboard || !navigator.clipboard.writeText) {
-                            fallbackCopyTextToClipboard(text);
-                            return;
-                        }
-                        navigator.clipboard.writeText(text).then(() => {
-                            showToast("Copied to clipboard!");
-                        }).catch(err => {
-                            fallbackCopyTextToClipboard(text);
-                        });
-                    }
-
-                    async function update() {
-                        if (isSearching) return;
+                    async function updatePoll() {
+                        if (state.view !== 'player') return;
                         try {
                             const res = await fetch('/api/current_stream');
                             const data = await res.json();
@@ -639,7 +626,6 @@ object WebUIServer {
                             }
                             
                             titleEl.innerText = data.title || 'Unknown Title';
-                            
                             if (data.poster) {
                                 posterEl.src = data.poster;
                                 posterEl.classList.remove('hidden');
@@ -682,11 +668,9 @@ object WebUIServer {
                                                 PotPlayer
                                             </a>
                                             <button onclick="copyToClipboard('${'$'}{m3uUrl}')" class="flex-grow xl:flex-grow-0 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded font-medium transition-colors text-sm flex items-center justify-center gap-1 border border-gray-600">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-300"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" /></svg>
                                                 M3U
                                             </button>
                                             <button onclick="copyToClipboard('${'$'}{escapeHtml(link.url)}')" class="flex-grow xl:flex-grow-0 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded font-medium transition-colors text-sm flex items-center justify-center gap-1 border border-gray-600">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-gray-300"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
                                                 URL
                                             </button>
                                         </div>
@@ -697,13 +681,58 @@ object WebUIServer {
                                 linksContainer.classList.add('hidden');
                                 noLinksMsg.classList.remove('hidden');
                             }
-                            
                         } catch (e) {
                             console.error(e);
                         }
                     }
-                    setInterval(update, 5000);
-                    update();
+
+                    function startPolling() {
+                        state.isPolling = true;
+                        state.pollInterval = setInterval(updatePoll, 5000);
+                        updatePoll();
+                    }
+
+                    function stopPolling() {
+                        state.isPolling = false;
+                        if (state.pollInterval) clearInterval(state.pollInterval);
+                    }
+
+                    // --- Utilities ---
+
+                    function showToast(text) {
+                        const toast = document.getElementById("toast");
+                        const msg = document.getElementById("toast-msg");
+                        msg.innerText = text;
+                        toast.classList.remove("show");
+                        void toast.offsetWidth;
+                        toast.classList.add("show");
+                        setTimeout(() => toast.classList.remove("show"), 3000);
+                    }
+
+                    function copyToClipboard(text) {
+                        navigator.clipboard.writeText(text).then(() => {
+                            showToast("Copied to clipboard!");
+                        }).catch(err => {
+                            const textArea = document.createElement("textarea");
+                            textArea.value = text;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            showToast("Copied!");
+                        });
+                    }
+
+                    // --- Initialization ---
+
+                    window.addEventListener('hashchange', handleRoute);
+                    window.addEventListener('load', handleRoute);
+
+                    // Global aliases for legacy HTML handlers
+                    window.search = onSearchTrigger;
+                    window.renderEpisodesForSeason = renderEpisodesForSeason;
+                    window.copyToClipboard = copyToClipboard;
+                    window.update = () => navigate('#/');
                 </script>
             </body>
             </html>
