@@ -53,7 +53,7 @@ object WebUIServer {
                             
                             val results = apis.amap { api ->
                                 try {
-                                    api.search(query)?.map {
+                                    api.search(query, 1)?.items?.map {
                                         mapOf(
                                             "name" to it.name,
                                             "url" to it.url,
@@ -62,7 +62,7 @@ object WebUIServer {
                                             "type" to it.type?.name
                                         )
                                     } ?: emptyList()
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     emptyList()
                                 }
                             }.flatten()
