@@ -78,45 +78,42 @@ object WebUIServer {
                                 try {
                                     val loadResponse = api.load(url)
                                     if (loadResponse != null) {
-                                        val links = mutableListOf<ExtractorLink>()
-                                        val subs = mutableListOf<SubtitleData>()
+                                        val episodes = mutableListOf<Map<String, Any?>>()
                                         
-                                        // Extract links for Movie/Episode. Only get the first episode to avoid long loading times.
-                                        val dataUrls = when (loadResponse) {
-                                            is MovieLoadResponse -> listOf(loadResponse.dataUrl)
-                                            is TvSeriesLoadResponse -> listOfNotNull(loadResponse.episodes.firstOrNull()?.data)
-                                            is AnimeLoadResponse -> listOfNotNull(loadResponse.episodes.values.flatten().firstOrNull()?.data)
-                                            is LiveStreamLoadResponse -> listOf(loadResponse.dataUrl)
-                                            else -> emptyList()
-                                        }
-                                        
-                                        dataUrls.forEach { dataUrl ->
-                                            try {
-                                                api.loadLinks(dataUrl, false, { subFile -> 
-                                                    subs.add(SubtitleData(
-                                                        subFile.lang,
-                                                        "",
-                                                        subFile.url,
-                                                        SubtitleOrigin.URL,
-                                                        "text/vtt", // Placeholder
-                                                        emptyMap(),
-                                                        subFile.lang
+                                        when (loadResponse) {
+                                            is MovieLoadResponse -> {
+                                                episodes.add(mapOf("name" to loadResponse.name, "data" to loadResponse.dataUrl))
+                                            }
+                                            is TvSeriesLoadResponse -> {
+                                                loadResponse.episodes.forEach { ep ->
+                                                    episodes.add(mapOf(
+                                                        "name" to (ep.name ?: "Episode ${ep.episode ?: "Unknown"}"), 
+                                                        "data" to ep.data, 
+                                                        "season" to ep.season, 
+                                                        "episode" to ep.episode
                                                     ))
-                                                }, { links.add(it) })
-                                            } catch (e: Throwable) {
-                                                // Ignore individual link load failures
+                                                }
+                                            }
+                                            is AnimeLoadResponse -> {
+                                                loadResponse.episodes.values.flatten().forEach { ep ->
+                                                    episodes.add(mapOf(
+                                                        "name" to (ep.name ?: "Episode ${ep.episode ?: "Unknown"}"), 
+                                                        "data" to ep.data, 
+                                                        "season" to ep.season, 
+                                                        "episode" to ep.episode
+                                                    ))
+                                                }
+                                            }
+                                            is LiveStreamLoadResponse -> {
+                                                episodes.add(mapOf("name" to loadResponse.name, "data" to loadResponse.dataUrl))
                                             }
                                         }
                                         
-                                        val streamData = CurrentStreamManager.StreamData(
-                                            title = loadResponse.name,
-                                            poster = loadResponse.posterUrl,
-                                            episode = null,
-                                            season = null,
-                                            links = links,
-                                            subs = subs
-                                        )
-                                        call.respond(streamData)
+                                        call.respond(mapOf(
+                                            "title" to loadResponse.name,
+                                            "poster" to loadResponse.posterUrl,
+                                            "episodes" to episodes
+                                        ))
                                     } else {
                                         call.respond(mapOf("error" to "Failed to load metadata"))
                                     }
@@ -125,6 +122,43 @@ object WebUIServer {
                                 }
                             } else {
                                 call.respond(mapOf("error" to "Invalid API or URL"))
+                            }
+                        }
+                        post("/api/load_links") {
+                            val req = call.receive<Map<String, String?>>()
+                            val dataUrl = req["data"] ?: ""
+                            val apiName = req["apiName"] ?: ""
+                            val title = req["title"]
+                            val poster = req["poster"]
+                            val season = req["season"]?.toIntOrNull()
+                            val episode = req["episode"]?.toIntOrNull()
+                            
+                            val api = getApiFromNameNull(apiName)
+                            
+                            if (api != null && dataUrl.isNotBlank()) {
+                                try {
+                                    val links = mutableListOf<ExtractorLink>()
+                                    val subs = mutableListOf<SubtitleData>()
+                                    
+                                    api.loadLinks(dataUrl, false, { subFile -> 
+                                        subs.add(SubtitleData(
+                                            subFile.lang,
+                                            "",
+                                            subFile.url,
+                                            SubtitleOrigin.URL,
+                                            "text/vtt", // Placeholder
+                                            emptyMap(),
+                                            subFile.lang
+                                        ))
+                                    }, { links.add(it) })
+                                    
+                                    CurrentStreamManager.updateStream(title, poster, episode, season, links, subs)
+                                    call.respond(mapOf("success" to true))
+                                } catch (e: Throwable) {
+                                    call.respond(mapOf("error" to e.message))
+                                }
+                            } else {
+                                call.respond(mapOf("error" to "Invalid API or data"))
                             }
                         }
                         post("/api/play") {
@@ -230,6 +264,7 @@ object WebUIServer {
                         <button class="btn btn-secondary" onclick="toggleView(false)">← Back to Player</button>
                         <h2 id="search-query-title">Search Results</h2>
                         <div id="search-results" class="search-results"></div>
+                        <div id="episode-view" style="display:none; text-align:left;"></div>
                     </div>
                 </div>
                 <div id="toast">Copied to clipboard!</div>
@@ -241,6 +276,11 @@ object WebUIServer {
                         isSearching = searching;
                         document.getElementById('player-view').style.display = searching ? 'none' : 'block';
                         document.getElementById('search-view').style.display = searching ? 'block' : 'none';
+                        if (searching) {
+                            document.getElementById('search-results').style.display = 'grid';
+                            document.getElementById('search-query-title').style.display = 'block';
+                            document.getElementById('episode-view').style.display = 'none';
+                        }
                     }
 
                     async function search() {
@@ -258,7 +298,7 @@ object WebUIServer {
                             let html = '';
                             results.forEach(item => {
                                 html += `
-                                    <div class="search-item" onclick="loadAndPlay(this.dataset.url, this.dataset.api)" data-url="${'$'}{item.url}" data-api="${'$'}{item.apiName}">
+                                    <div class="search-item" onclick="loadEpisodes(this.dataset.url, this.dataset.api)" data-url="${'$'}{item.url}" data-api="${'$'}{item.apiName}">
                                         <img src="${'$'}{item.posterUrl || ''}" onerror="this.src='https://via.placeholder.com/120x180?text=No+Poster'">
                                         <div class="search-item-title">${'$'}{item.name}</div>
                                         <div style="padding: 0 5px 5px; opacity: 0.7;">${'$'}{item.apiName}</div>
@@ -273,31 +313,59 @@ object WebUIServer {
                         }
                     }
 
-                    async function loadAndPlay(url, apiName) {
-                        showToast("Loading metadata & links...");
+                    async function loadEpisodes(url, apiName) {
+                        showToast("Loading metadata...");
                         try {
                             const res = await fetch(`/api/load?url=${'$'}{encodeURIComponent(url)}&apiName=${'$'}{encodeURIComponent(apiName)}`);
-                            const streamData = await res.json();
+                            const metadata = await res.json();
                             
-                            if (streamData.error) {
-                                showToast("Error: " + streamData.error);
+                            if (metadata.error) {
+                                showToast("Error: " + metadata.error);
                                 return;
                             }
                             
-                            const playRes = await fetch('/api/play', {
+                            let html = `<button class="btn btn-secondary" onclick="document.getElementById('episode-view').style.display='none'; document.getElementById('search-results').style.display='grid'; document.getElementById('search-query-title').style.display='block';">← Back to Results</button>`;
+                            html += `<h2 style="margin-top:20px;">${'$'}{metadata.title}</h2>`;
+                            html += `<div style="display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto;">`;
+                            metadata.episodes.forEach(ep => {
+                                html += `<button class="btn" style="text-align:left; background:#333;" onclick="playEpisode(this.dataset.url, this.dataset.api, this.dataset.title, this.dataset.poster, this.dataset.season, this.dataset.episode)" data-url="${'$'}{ep.data}" data-api="${'$'}{apiName}" data-title="${'$'}{metadata.title.replace(/"/g, '&quot;')}" data-poster="${'$'}{metadata.poster || ''}" data-season="${'$'}{ep.season || ''}" data-episode="${'$'}{ep.episode || ''}">${'$'}{ep.name}</button>`;
+                            });
+                            html += `</div>`;
+                            
+                            document.getElementById('search-results').style.display = 'none';
+                            document.getElementById('search-query-title').style.display = 'none';
+                            document.getElementById('episode-view').innerHTML = html;
+                            document.getElementById('episode-view').style.display = 'block';
+                            
+                        } catch (e) {
+                            console.error(e);
+                            showToast("Failed to load metadata.");
+                        }
+                    }
+
+                    async function playEpisode(dataUrl, apiName, title, poster, season, episode) {
+                        showToast("Loading links...");
+                        try {
+                            const res = await fetch('/api/load_links', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(streamData)
+                                body: JSON.stringify({ data: dataUrl, apiName: apiName, title: title, poster: poster, season: season, episode: episode })
                             });
+                            const playRes = await res.json();
                             
-                            if (playRes.ok) {
+                            if (playRes.error) {
+                                showToast("Error: " + playRes.error);
+                                return;
+                            }
+                            
+                            if (playRes.success) {
                                 showToast("Stream pushed to app!");
                                 toggleView(false);
                                 update(); // Refresh player view immediately
                             }
                         } catch (e) {
                             console.error(e);
-                            showToast("Failed to load stream.");
+                            showToast("Failed to load links.");
                         }
                     }
 
